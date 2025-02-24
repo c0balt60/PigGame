@@ -6,7 +6,10 @@ using System.Threading.Tasks;
 
 namespace PigProject
 {
-    class BroadcastArgs
+    class BroadcastArgs: EventArgs
     {
+        public string? Player { get; set; }
+        public int? Turn { get; set; }
+
     }
 }

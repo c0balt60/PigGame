@@ -10,17 +10,38 @@ namespace PigProject
 
         public Dictionary<string, int> players = new Dictionary<string, int>();
         public static Random rng = new Random();
+        public int turnNumber = 1;          // Tracking the turn number for a player
         public static int turnCache = 0;    // Turn Total cache
         public static bool gameEnd = false;
 
         public static bool output;
         public static int delay;
         public static bool usingAI;
-        
-        public event EventHandler<BroadcastEventArgs> BroadcastTurn;
-        public class BroadcastEventArgs : EventArgs
+
+        /// <summary>
+        /// Store event subscriptions
+        /// </summary>
+        private EventHandler<BroadcastArgs> _broadcastTurn;
+        /// <summary>
+        /// Signal subscription guards. Prvents duplicate subscriptions
+        /// Source: https://stackoverflow.com/questions/817592/avoid-duplicate-event-subscriptions-in-c-sharp
+        /// </summary>
+        internal event EventHandler<BroadcastArgs> BroadcastTurn
         {
-            public required string Player { get; set; }
+            add
+            {
+                if (_broadcastTurn == null)
+                {
+                    _broadcastTurn = value;
+                }
+            }
+            remove
+            {
+                // Not valid compiler warning ;(
+#pragma warning disable CS8601 // Possible null reference assignment.
+                _broadcastTurn -= value;
+#pragma warning restore CS8601 // Possible null reference assignment.
+            }
         }
 
         /// <summary>
@@ -29,12 +50,14 @@ namespace PigProject
         /// <param name="printOut">Option to output messages or not</param>
         /// <param name="timeout">Option for timeout after the end of a game before beginning a new one</param>
         /// <param name="onlyAI">Option for running a test with only AI</param>
+#pragma warning disable CS8618 // Useless warning
         public Game(bool printOut, int timeout, bool onlyAI)
         {
             output = printOut;
             delay = timeout;
             usingAI = onlyAI;
         }
+#pragma warning restore CS8618
 
         /// <summary>
         /// Outputs the given string and checks if it can
@@ -174,12 +197,44 @@ namespace PigProject
             return;
         }
 
-        public void AITurn(char input)
+        public Tuple<bool,int> AITurn(string name, char input)
         {
             if (input == 'h')
             {
+                players[name] += turnCache;
 
+                // 100 points, end the game
+                if (players[name] >= 100)
+                {
+                    gameEnd = true;
+                    PrintOut($"Player {name} has reached 100 points!");
+                    return Tuple.Create(false, 0);
+                }
+
+                PrintOut($"Player held. Points added: {turnCache}. Point total: {players[name]}");
+                return Tuple.Create(false, 0);
             }
+            else if (input == 'r')
+            {
+                int roll = rng.Next(1, 7);
+
+                // Check if not 1
+                if (roll == 1)
+                {
+                    PrintOut($"Player rolled a 1. Turn over. ({name}). Point total: {players[name]}");
+                    return Tuple.Create(false, 0);
+                }
+
+                // Add points
+                turnCache += roll;
+                PrintOut($"Player rolled a {roll}. Points in current turn: {turnCache}");
+
+                // Fire another event
+                turnNumber += 1;
+                _broadcastTurn?.Invoke(this, new BroadcastArgs() { Player = name });
+                return Tuple.Create(true, turnNumber - 1);
+            }
+            return Tuple.Create(false, 0);
         }
 
         /// <summary>
@@ -200,13 +255,13 @@ namespace PigProject
                     {
                         // Break loop if someone won
                         if (gameEnd) { break; }
+                        Thread.Sleep(delay);
 
+                        BroadcastArgs args = new();
+                        args.Player = player;
+                        _broadcastTurn?.Invoke(this, args);
 
-                        BroadcastEventArgs args = new()
-                        {
-                            Player = player
-                        };
-                        BroadcastTurn?.Invoke(this, args);
+                        turnNumber = 1;
                         turnCache = 0;
                     }
                 }

@@ -5,43 +5,46 @@ using System.Threading;
 
 namespace PigProject
 {
+    /// <summary>
+    /// Interface for BroadcastTurn event
+    /// </summary>
+    class BroadcastArgs : EventArgs
+    {
+        public string? Player { get; set; }
+        public int? Turn { get; set; }      // A little bit useless, subbed out for tuple return
+
+    }
+
     public class Game
     {
-
+        // player cache
         public Dictionary<string, int> players = new Dictionary<string, int>();
-        public static Random rng = new Random();
-        public int turnNumber = 1;          // Tracking the turn number for a player
-        public static int turnCache = 0;    // Turn Total cache
-        public static bool gameEnd = false;
 
+        // input vars
+        public static Random rng = new Random();
+        public int turnNumber = 0;          // Tracking the turn number for a player
+        public int turnCache = 0;           // Turn Total cache
+        public bool infinite = true;       // Infinitely recurses the Run method
+        public Tuple<string, int> winner;   // Winner of the game
+
+        // static vars
+        public static bool gameEnd = false;
         public static bool output;
         public static int delay;
         public static bool usingAI;
 
         /// <summary>
-        /// Store event subscriptions
+        /// Event that handles broadcasting turns to AI for decision making.
         /// </summary>
-        private EventHandler<BroadcastArgs> _broadcastTurn;
+        internal event EventHandler<BroadcastArgs> BroadcastTurn;
+
         /// <summary>
-        /// Signal subscription guards. Prvents duplicate subscriptions
-        /// Source: https://stackoverflow.com/questions/817592/avoid-duplicate-event-subscriptions-in-c-sharp
+        /// Count the number of subscriptions in BroadcastTurn
         /// </summary>
-        internal event EventHandler<BroadcastArgs> BroadcastTurn
+        /// <returns>number of listeners</returns>
+        public int Count()
         {
-            add
-            {
-                if (_broadcastTurn == null)
-                {
-                    _broadcastTurn = value;
-                }
-            }
-            remove
-            {
-                // Not valid compiler warning ;(
-#pragma warning disable CS8601 // Possible null reference assignment.
-                _broadcastTurn -= value;
-#pragma warning restore CS8601 // Possible null reference assignment.
-            }
+            return BroadcastTurn.GetInvocationList().Length;
         }
 
         /// <summary>
@@ -50,27 +53,25 @@ namespace PigProject
         /// <param name="printOut">Option to output messages or not</param>
         /// <param name="timeout">Option for timeout after the end of a game before beginning a new one</param>
         /// <param name="onlyAI">Option for running a test with only AI</param>
-#pragma warning disable CS8618 // Useless warning
         public Game(bool printOut, int timeout, bool onlyAI)
         {
             output = printOut;
             delay = timeout;
             usingAI = onlyAI;
         }
-#pragma warning restore CS8618
 
         /// <summary>
         /// Outputs the given string and checks if it can
         /// </summary>
         /// <param name="msg">String to be outputted</param>
-        public void PrintOut(string msg)
+        public static void PrintOut(string msg)
         {
             if (!output) { return; }
             Console.WriteLine(msg);
         }
 
         /// <summary>
-        /// Processing 
+        /// Processing user input
         /// </summary>
         /// <returns>Inputted string</returns>
         public string TryReadLine()
@@ -118,13 +119,13 @@ namespace PigProject
             // Reset variables
             turnCache = 0;
             gameEnd = false;
-            //players.Clear();
+            winner = Tuple.Create("", 0);
+            foreach (KeyValuePair<string, int> player in players) players[player.Key] = 0;
 
             // If using ai then stop here
             if (usingAI) { return; }
             players.Clear();
 
-            // Output
             PrintOut("\nPigProject ~ ");
             int numPlayers = 0;
 
@@ -197,6 +198,13 @@ namespace PigProject
             return;
         }
 
+        /// <summary>
+        /// Processes a turn for AI
+        /// Returns an Tuple(false,0) if the turn ended 
+        /// </summary>
+        /// <param name="name">GUID for the AI</param>
+        /// <param name="input">The provided input of the AI</param>
+        /// <returns>bool: is players turn?, int: current turn</returns>
         public Tuple<bool,int> AITurn(string name, char input)
         {
             if (input == 'h')
@@ -207,11 +215,12 @@ namespace PigProject
                 if (players[name] >= 100)
                 {
                     gameEnd = true;
-                    PrintOut($"Player {name} has reached 100 points!");
+                    PrintOut($"\t➤ Player {name} has reached 100 points!");
+                    winner = Tuple.Create(name, players[name]);
                     return Tuple.Create(false, 0);
                 }
 
-                PrintOut($"Player held. Points added: {turnCache}. Point total: {players[name]}");
+                PrintOut($"\t➤ Player held. Points added: {turnCache}. Point total: {players[name]}");
                 return Tuple.Create(false, 0);
             }
             else if (input == 'r')
@@ -221,32 +230,33 @@ namespace PigProject
                 // Check if not 1
                 if (roll == 1)
                 {
-                    PrintOut($"Player rolled a 1. Turn over. ({name}). Point total: {players[name]}");
+                    PrintOut($"\t➤ Player rolled a 1. Turn over. ({name}). Point total: {players[name]}");
                     return Tuple.Create(false, 0);
                 }
 
                 // Add points
                 turnCache += roll;
-                PrintOut($"Player rolled a {roll}. Points in current turn: {turnCache}");
+                PrintOut($"\t➜ Player rolled a {roll}. Points in current turn: {turnCache}. Overall: {players[name]}");
 
                 // Fire another event
                 turnNumber += 1;
-                _broadcastTurn?.Invoke(this, new BroadcastArgs() { Player = name });
+
+                //_broadcastTurn?.Invoke(this, new BroadcastArgs() { Player = name });
                 return Tuple.Create(true, turnNumber - 1);
             }
             return Tuple.Create(false, 0);
         }
-
+        
         /// <summary>
         /// Initiates a game instance
         /// </summary>
         protected virtual void BeginGame()
         {
             // TODO: FIX UP STRUCTURE
-
+            
             // Only for AI
             // Not very good structure
-            List<string> keys = new List<string>(players.Keys);
+            List<string> keys = [.. players.Keys];
             if (usingAI)
             {
                 while (!gameEnd)
@@ -259,10 +269,11 @@ namespace PigProject
 
                         BroadcastArgs args = new();
                         args.Player = player;
-                        _broadcastTurn?.Invoke(this, args);
+                        BroadcastTurn?.Invoke(this, args);
 
-                        turnNumber = 1;
+                        turnNumber = 0;
                         turnCache = 0;
+                        Console.WriteLine($"Reset: {player}");
                     }
                 }
 
@@ -290,6 +301,7 @@ namespace PigProject
         {
 
             PrintOut("\n----------------------------------------");
+            PrintOut($"\nWinner: {winner.Item1}!!!\nScore: {winner.Item2}\n\n");
             PrintOut($"~ Leaderboard ~\n");
 
             // Output winner
@@ -299,7 +311,7 @@ namespace PigProject
             }
             PrintOut("\n----------------------------------------\n");
 
-            PrintOut("Rerunning game...\n");
+            if (infinite) PrintOut("Rerunning game...\n");
             Thread.Sleep(delay);
         }
 
@@ -308,6 +320,9 @@ namespace PigProject
             Start();
             BeginGame();
             EndGame();
+
+            // Infinite option
+            if (infinite) Run();
         }
 
     }

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Threading;
+using System.Reflection.Metadata.Ecma335;
 
 namespace PigProject
 {
@@ -13,66 +14,106 @@ namespace PigProject
         Game inst;
         public string id;
         static int currentTurns = 0;
-        static int saveAfter;
+        static int saveAfterTurn;
+        static int saveAfterPoints = 25;
 
-        public AI(Game game, int maximumSave)
+        public AI(Game game, int? maximumSave)
         {
             inst = game;
-            saveAfter = maximumSave;
+            saveAfterTurn = maximumSave!=null ? (int)maximumSave : 10;
             id = Guid.NewGuid().ToString();
-        }
-
-        public delegate void AITurnEventHandler(object sender, BroadcastArgs e);
-        public void AITurn(object sender, BroadcastArgs e)
-        {
-            Console.WriteLine($"Captured {e.Player}");
-            if (e.Player != id) { return; }
-
-            // Run function
-            inst.AITurn(id, 'r');
-        }
-
-        public void Run(Game instance)
-        {
 
             // Add event subscription
             // Remove warning for incompatability of AITurn args && EventHandler<BroacastArgs>
-#pragma warning disable CS8622
-            instance.BroadcastTurn += AITurn;
-#pragma warning restore CS8622
+            game.BroadcastTurn += AITurn;
+        }
+
+        public void AITurn(object sender, BroadcastArgs e)
+        {
+            
+            if (e.Player != id) { return; }
+            Console.WriteLine($"\nCaptured ({e.Player});");
+
+            Tuple<bool, int> turn;
+
+            // Logic
+            if (inst.turnNumber >= saveAfterTurn || inst.turnCache >= saveAfterPoints)
+
+            // AI rolled more or scored more than threshold, save points
+            turn = inst.AITurn(id, 'h');
+            
+
+            // Run function default
+            else turn = inst.AITurn(id, 'r');
+
+            Console.WriteLine($"Turn Total: {inst.turnCache}; Turn Number: {inst.turnNumber}");
+
+            // Check if turn isn't over
+            if (turn.Item1 == true)
+            {
+                AITurn(sender, e);
+                return;
+            }
+            else
+            {
+
+                // Change bounds depending on game result
+                saveAfterTurn += inst.turnNumber >= saveAfterTurn ? 1 : -1;
+                saveAfterPoints += inst.turnCache >= saveAfterPoints ? 1 : -1;
+
+                Console.WriteLine("END TURN\n");
+            }
+            return;
         }
     }
 
     class PigProject
     {
 
-        static bool using_AI = false;
-        static int ai_opponents = 2;
+        //static bool using_AI = false;
+        static int ai_opponents = 4;
         static List<AI> opponents = new List<AI>();
 
+        /// <summary>
+        /// Slightly misleading name
+        /// Runs the AI's to battle each other
+        /// </summary>
+        /// <param name="instance">Active game instance</param>
         public static void _benchmark_ai(Game instance)
         {
 
             for (int i = 0; i < ai_opponents; i++)
             {
                 AI opponent = new AI(instance, 3);
-                opponent.Run(instance);
+
+                // Cache AI object reference to save in memory
                 opponents.Add(opponent);
+
                 instance.players.Add(opponent.id, 0);
+                Console.WriteLine($"New: {i}");
             }
 
+            Console.WriteLine($"Events: {instance.Count()}");
             instance.Run();
         }
 
         public static void Main(string[] args)
         {
 
-            //Game inst = new Game(true, 5000, false);
-            //inst.Run();
+            // Example PVP battle
+            Game inst = new(
+                true,
+                5000,
+                false
+             );
 
-            // For AI
-            Game inst = new(true, 1000, true);
-            _benchmark_ai(inst);
+            // Example AI battle
+            //Game inst = new(
+            //    true,       // Output messages to console
+            //    500,         // Delay between turns
+            //    true        // Uses only ai
+            // );
+            //_benchmark_ai(inst);
 
         }
     }

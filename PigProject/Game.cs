@@ -166,6 +166,7 @@ namespace PigProject
                 {
                     gameEnd = true;
                     PrintOut($"Player {name} has reached 100 points!");
+                    winner = Tuple.Create(name, players[name]);
                     return;
                 }
 
